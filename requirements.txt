@@ -1,0 +1,10 @@
+streamlit
+langchain
+langchain-community
+langchain_google_genai
+faiss-cpu
+PyPDF2
+pandas
+python-docx
+openpyxl
+psycopg2
