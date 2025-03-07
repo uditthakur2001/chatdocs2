@@ -8,10 +8,14 @@ from langchain.vectorstores import FAISS
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
+import pandas as pd
+from io import StringIO
+from docx import Document
+
 
 # 🔹 Streamlit Config
-st.set_page_config(page_title="ChatPDF", page_icon="📝", layout="wide", initial_sidebar_state="expanded")
-st.title("📝 ChatPDF")
+st.set_page_config(page_title="ChatDocs", page_icon="📝", layout="wide")
+st.title("📝 ChatDocs")
 
 os.environ["GOOGLE_API_KEY"] = "AIzaSyCN6sMI7nRyuwgTovMrNbs2OdoOIEFAv60"
 
@@ -75,7 +79,7 @@ if st.session_state["user_id"]:
     conn.close()
 
     if pdfs:
-        selected_pdf = st.sidebar.selectbox("📂 Select a PDF", [pdf[0] for pdf in pdfs])
+        selected_pdf = st.sidebar.selectbox("📂 Select a Document", [pdf[0] for pdf in pdfs])
 
         conn = connect_db()
         cursor = conn.cursor()
@@ -89,8 +93,8 @@ if st.session_state["user_id"]:
 
         if chats:
             for chat in chats:
-                st.sidebar.write(f"❓ **Q:** {chat[0]}")
-                st.sidebar.write(f"💡 **A:** {chat[1]}")
+                st.sidebar.write(f" **Q:** {chat[0]}")
+                st.sidebar.write(f" **A:** {chat[1]}")
                 # st.sidebar.write(f"⏰ **Time:** {chat[2]}")
                 st.sidebar.write("---")
         else:
@@ -98,11 +102,17 @@ if st.session_state["user_id"]:
     else:
         st.sidebar.info("No chat history found.")
 
-    # 🔹 Move Logout Button to Sidebar
-    if st.sidebar.button("🚪 Logout"):
+    # Add an empty space to push the button to the right
+    st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
+
+    if st.button("🚪 Logout"):
         st.session_state["user_id"] = None
         st.session_state["username"] = None
         st.rerun()
+
+    # Close the right-alignment div
+    st.markdown("</div>", unsafe_allow_html=True)
+
 else:
     st.sidebar.info("🔑 Please log in to see your chat history.")
 
@@ -150,12 +160,7 @@ if not st.session_state["user_id"]:
                     st.error("❌ Username or email already exists.")
     st.stop()
 
-# 🔹 File Upload Section
-uploaded_file = st.file_uploader("📂 Upload a PDF file", type="pdf")
 
-if uploaded_file is None:
-    st.warning("⚠️ Please upload a PDF file to proceed.")
-    st.stop()
 
 # 🔹 Extract Text from PDF
 def extract_text_from_pdf(uploaded_file):
@@ -163,17 +168,51 @@ def extract_text_from_pdf(uploaded_file):
     text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
     return text
 
-pdf_text = extract_text_from_pdf(uploaded_file)
+def extract_text_from_docx(uploaded_file):
+    doc = Document(uploaded_file)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def extract_text_from_csv(uploaded_file):
+    df = pd.read_csv(uploaded_file)
+    return df.to_string()
+
+def extract_text_from_xlsx(uploaded_file):
+    df = pd.read_excel(uploaded_file)
+    return df.to_string()
+
+def extract_text_from_txt(uploaded_file):
+    return StringIO(uploaded_file.getvalue().decode("utf-8")).read()
+
+uploaded_file = st.file_uploader("📂 Upload a document", type=["pdf", "docx", "csv", "xlsx", "txt"])
+
+if uploaded_file is None:
+    st.warning("⚠️ Please upload a document to proceed.")
+    st.stop()
+
+file_type = uploaded_file.type
+if "pdf" in file_type:
+    document_text = extract_text_from_pdf(uploaded_file)
+elif "word" in file_type or "docx" in uploaded_file.name:
+    document_text = extract_text_from_docx(uploaded_file)
+elif "csv" in file_type:
+    document_text = extract_text_from_csv(uploaded_file)
+elif "excel" in file_type or "xlsx" in uploaded_file.name:
+    document_text = extract_text_from_xlsx(uploaded_file)
+elif "text" in file_type or "txt" in uploaded_file.name:
+    document_text = extract_text_from_txt(uploaded_file)
+else:
+    st.error("❌ Unsupported file type.")
+    st.stop()
 
 # 🔹 Text Splitting & Embedding
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-texts = text_splitter.split_text(pdf_text)
+texts = text_splitter.split_text(document_text)
 
 embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 vector_store = FAISS.from_texts(texts, embeddings)
 
 # 🔹 Question Answering
-st.subheader("Ask a Question from the PDF:")
+st.subheader("Ask a Question from the Docs:")
 user_question = st.text_input("Your Question")
 if user_question:
     docs = vector_store.similarity_search(user_question)
