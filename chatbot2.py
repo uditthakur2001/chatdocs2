@@ -11,7 +11,9 @@ from PyPDF2 import PdfReader
 import pandas as pd
 from io import StringIO
 from docx import Document
-
+import smtplib
+import random
+from email.mime.text import MIMEText
 
 # 🔹 Streamlit Config
 st.set_page_config(page_title="ChatDocs", page_icon="📝", layout="wide")
@@ -28,6 +30,13 @@ def connect_db():
         host="ep-dark-firefly-a8fjfreu-pooler.eastus2.azure.neon.tech",
         port="5432"
     )
+
+def get_email_credentials():
+    sender_email = "uditrajsingh815@gmail.com"  # Your fixed sender email
+    sender_password = "zpjb vgul dzkc jpbe"
+    return sender_email, sender_password
+
+
 
 # 🔹 Hash Passwords
 def hash_password(password):
@@ -95,7 +104,6 @@ if st.session_state["user_id"]:
             for chat in chats:
                 st.sidebar.write(f" **Q:** {chat[0]}")
                 st.sidebar.write(f" **A:** {chat[1]}")
-                # st.sidebar.write(f"⏰ **Time:** {chat[2]}")
                 st.sidebar.write("---")
         else:
             st.sidebar.info("No chats found for this PDF.")
@@ -129,12 +137,66 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+def send_reset_email(email, otp):
+    sender_email, sender_password = get_email_credentials()
+
+    subject = "Password Reset Code"
+    body = f"Your password reset OTP is: {otp}"
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = email
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, email, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        st.error(f"❌ Error sending email: {e}")
+        return False
+
+
+def forgot_password(email):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email=%s", (email,))
+    user = cursor.fetchone()
+
+    if user:
+        otp = random.randint(100000, 999999)
+        st.session_state["reset_otp"] = otp
+        st.session_state["reset_email"] = email
+        if send_reset_email(email, otp):
+            return True
+        else:
+            return False
+    return False
+
+
+# 🔹 Reset Password Function
+def reset_password(email, otp, new_password):
+    if "reset_otp" in st.session_state and "reset_email" in st.session_state:
+        if st.session_state["reset_otp"] == otp and st.session_state["reset_email"] == email:
+            hashed_pw = hash_password(new_password)
+            conn = connect_db()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password=%s WHERE email=%s", (hashed_pw, email))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+    return False
+
 # 🔹 Login/Signup UI
-if not st.session_state["user_id"]:
+if not st.session_state.get("user_id"):
     col1, col2 = st.columns([2, 3])
     with col1:
-        st.subheader("🔑 Login / Sign Up")
-        auth_mode = st.radio("", ["Login", "Sign Up"])
+        st.subheader("🔑 User Panel")
+        auth_mode = st.radio("", ["Login", "Sign Up", "Forgot Password"])
 
         if auth_mode == "Login":
             username = st.text_input("Username")
@@ -148,7 +210,7 @@ if not st.session_state["user_id"]:
                     st.rerun()
                 else:
                     st.error("❌ Invalid username or password")
-        
+
         elif auth_mode == "Sign Up":
             new_username = st.text_input("New Username")
             email = st.text_input("Email")
@@ -158,8 +220,23 @@ if not st.session_state["user_id"]:
                     st.success("✅ Account created! Please log in.")
                 else:
                     st.error("❌ Username or email already exists.")
+        
+        elif auth_mode == "Forgot Password":
+            email = st.text_input("Enter your registered email")
+            if st.button("Send OTP"):
+                if forgot_password(email):
+                    st.success("✅ OTP sent to your email.")
+                else:
+                    st.error("❌ Email not found.")
+            
+            otp = st.text_input("Enter OTP")
+            new_password = st.text_input("Enter new password", type="password")
+            if st.button("Reset Password"):
+                if reset_password(email, int(otp), new_password):
+                    st.success("✅ Password reset successful! Please log in.")
+                else:
+                    st.error("❌ Invalid OTP or email.")
     st.stop()
-
 
 
 # 🔹 Extract Text from PDF
@@ -183,6 +260,7 @@ def extract_text_from_xlsx(uploaded_file):
 def extract_text_from_txt(uploaded_file):
     return StringIO(uploaded_file.getvalue().decode("utf-8")).read()
 
+
 uploaded_file = st.file_uploader("📂 Upload a document", type=["pdf", "docx", "csv", "xlsx", "txt"])
 
 if uploaded_file is None:
@@ -203,6 +281,7 @@ elif "text" in file_type or "txt" in uploaded_file.name:
 else:
     st.error("❌ Unsupported file type.")
     st.stop()
+
 
 # 🔹 Text Splitting & Embedding
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
