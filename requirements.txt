@@ -1,5 +1,5 @@
 streamlit
-psycopg2-binary
+psycopg2
 bcrypt
 langchain
 langchain-google-genai
@@ -7,6 +7,3 @@ faiss-cpu
 PyPDF2
 pandas
 python-docx
-smtplib
-email
-random
