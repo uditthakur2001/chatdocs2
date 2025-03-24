@@ -72,6 +72,42 @@ def register_user(username, email, password):
         cursor.close()
         conn.close()
 
+# 🔹 Delete Chat History Function
+def delete_chat_history(user_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_history WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# 🔹 Function to Delete Chat History for a Specific PDF
+def delete_chat_history(user_id, pdf_name):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_history WHERE user_id = %s AND pdf_name = %s", (user_id, pdf_name))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# 🔹 Delete User Account
+def delete_account(user_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        # Delete user's chat history first (to maintain foreign key integrity)
+        cursor.execute("DELETE FROM chat_history WHERE user_id = %s", (user_id,))
+        # Delete user account
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"❌ Error deleting account: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
 # 🔹 User Session Management
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = None
@@ -109,6 +145,17 @@ if st.session_state["user_id"]:
             st.sidebar.info("No chats found for this PDF.")
     else:
         st.sidebar.info("No chat history found.")
+    
+        # 🔹 Add Delete Chat History for Selected PDF
+    if st.sidebar.button(f"🗑️ Delete Chat for '{selected_pdf}'"):
+        delete_chat_history(st.session_state["user_id"], selected_pdf)
+        st.sidebar.success(f"✅ Chat history for '{selected_pdf}' deleted!")
+        st.rerun()
+        # 🔹 Add Delete Chat History Button
+    if st.sidebar.button("🗑️ Delete All Chat History"):
+        delete_chat_history(st.session_state["user_id"])
+        st.sidebar.success("✅ Chat history deleted!")
+        st.rerun()
 
     # Add an empty space to push the button to the right
     st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
@@ -118,6 +165,15 @@ if st.session_state["user_id"]:
         st.session_state["username"] = None
         st.rerun()
 
+    if st.button("🗑️ Delete My Account", key="delete_account"):
+        if st.session_state["user_id"]:
+        # confirm = st.confirm("Are you sure you want to delete your account permanently?")
+        # if confirm:
+            if delete_account(st.session_state["user_id"]):
+                st.success("✅ Your account has been deleted successfully.")
+                st.session_state["user_id"] = None
+                st.session_state["username"] = None
+                st.rerun()
     # Close the right-alignment div
     st.markdown("</div>", unsafe_allow_html=True)
 
