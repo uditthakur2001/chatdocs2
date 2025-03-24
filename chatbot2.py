@@ -126,7 +126,11 @@ if st.session_state["user_id"]:
     conn.close()
 
     if pdfs:
-        selected_pdf = st.sidebar.selectbox("📂 Select a Document", [pdf[0] for pdf in pdfs])
+        selected_pdf = st.sidebar.selectbox(
+            "Select a Document",  # Keep a valid label
+            [pdf[0] for pdf in pdfs],
+            label_visibility="collapsed"  # Hides the label but avoids warnings
+        )
 
         conn = connect_db()
         cursor = conn.cursor()
@@ -145,19 +149,21 @@ if st.session_state["user_id"]:
                 st.sidebar.write("---")
         else:
             st.sidebar.info("No chats found for this PDF.")
+
+        # 🔹 Show Delete Chat History for Selected PDF only if `selected_pdf` exists
+        if st.sidebar.button(f"🗑️ Delete Chat for '{selected_pdf}'"):
+            delete_chat_history(st.session_state["user_id"], selected_pdf)
+            st.sidebar.success(f"✅ Chat history for '{selected_pdf}' deleted!")
+            st.rerun()
     else:
         st.sidebar.info("No chat history found.")
-    
-        # 🔹 Add Delete Chat History for Selected PDF
-    if st.sidebar.button(f"🗑️ Delete Chat for '{selected_pdf}'"):
-        delete_chat_history(st.session_state["user_id"], selected_pdf)
-        st.sidebar.success(f"✅ Chat history for '{selected_pdf}' deleted!")
-        st.rerun()
-        # 🔹 Add Delete Chat History Button
-    if st.sidebar.button("🗑️ Delete All Chat History"):
+
+    # 🔹 Always show "Delete All Chat History" button
+    if pdfs and st.sidebar.button("🗑️ Delete All Chat History"):
         delete_chat_history(st.session_state["user_id"])
         st.sidebar.success("✅ Chat history deleted!")
         st.rerun()
+
 
     # Add an empty space to push the button to the right
     st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
@@ -254,7 +260,7 @@ if not st.session_state.get("user_id"):
     col1, col2 = st.columns([2, 3])
     with col1:
         st.subheader("🔑 User Panel")
-        auth_mode = st.radio("", ["Login", "Sign Up", "Forgot Password"])
+        auth_mode = st.radio("Mode", ["Login", "Sign Up", "Forgot Password"], label_visibility="collapsed")
 
         if auth_mode == "Login":
             username = st.text_input("Username")
