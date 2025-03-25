@@ -1,5 +1,3 @@
-# ======================= Import Section =======================
-
 import streamlit as st
 import psycopg2
 import bcrypt
