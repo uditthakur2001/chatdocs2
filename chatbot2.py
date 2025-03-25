@@ -2,11 +2,11 @@ import streamlit as st
 import psycopg2
 import bcrypt
 import os
+import re  # Import regex for email validation
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 # from langchain.vectorstores import FAISS
 from langchain_community.vectorstores import FAISS
-
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
@@ -39,6 +39,23 @@ def get_email_credentials():
     return sender_email, sender_password
 
 
+def get_admin_username(user_id):
+    """Fetch the admin's username from the users table."""
+    conn = psycopg2.connect(
+        dbname="neondb",
+        user="neondb_owner",
+        password="npg_1IeuRlwZdc8a",
+        host="ep-dark-firefly-a8fjfreu-pooler.eastus2.azure.neon.tech",
+        port="5432"
+    )
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))  # Assuming 'id' is the primary key
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return user[0].upper() if user else None  # Return username if found
+
 
 # 🔹 Hash Passwords
 def hash_password(password):
@@ -59,20 +76,34 @@ def validate_user(username, password):
         return user[0]
     return None
 
+
 # 🔹 Register User
 def register_user(username, email, password):
+    # 🔹 Validate Email (Must End with @gmail.com)
+    if not email.endswith("@gmail.com"):
+        return "❌ Invalid email! Only Gmail accounts (@gmail.com) are allowed."
+
+    # 🔹 Validate Password (Cannot Be Empty)
+    if not password.strip():
+        return "❌ Password cannot be empty!"
+
     hashed_pw = hash_password(password)
     conn = connect_db()
     cursor = conn.cursor()
+    
     try:
-        cursor.execute("INSERT INTO users (username, email, password) VALUES (%s, %s, %s)", (username, email, hashed_pw))
+        cursor.execute(
+            "INSERT INTO users (username, email, password) VALUES (%s, %s, %s)", 
+            (username, email, hashed_pw)
+        )
         conn.commit()
-        return True
+        return "✅ Registration successful!"
     except psycopg2.IntegrityError:
-        return False
+        return "❌ Email already registered!"
     finally:
         cursor.close()
         conn.close()
+
 
 # 🔹 Delete Chat History Function
 def delete_chat_history(user_id):
@@ -141,6 +172,7 @@ if st.session_state["user_id"]:
         chats = cursor.fetchall()
         cursor.close()
         conn.close()
+        
 
         if chats:
             for chat in chats:
@@ -165,28 +197,67 @@ if st.session_state["user_id"]:
         st.rerun()
 
 
-    # Add an empty space to push the button to the right
-    st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
-
-    if st.button("🚪 Logout"):
-        st.session_state["user_id"] = None
-        st.session_state["username"] = None
-        st.rerun()
-
-    if st.button("🗑️ Delete My Account", key="delete_account"):
-        if st.session_state["user_id"]:
-        # confirm = st.confirm("Are you sure you want to delete your account permanently?")
-        # if confirm:
-            if delete_account(st.session_state["user_id"]):
-                st.success("✅ Your account has been deleted successfully.")
-                st.session_state["user_id"] = None
-                st.session_state["username"] = None
-                st.rerun()
-    # Close the right-alignment div
-    st.markdown("</div>", unsafe_allow_html=True)
+    # # Add an empty space to push the button to the right
+    # st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
+    # # Close the right-alignment div
+    # st.markdown("</div>", unsafe_allow_html=True)
 
 else:
     st.sidebar.info("🔑 Please log in to see your chat history.")
+
+# Check if user is logged in
+if "user_id" in st.session_state and st.session_state["user_id"]:
+    admin_name = get_admin_username(st.session_state["user_id"])
+    st.session_state["admin_name"] = admin_name  # Store in session
+
+    # Apply CSS for right alignment
+    st.markdown(
+        """
+        <style>
+        .admin-name {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .stButton>button {
+            background-color: #FF4B4B !important;
+            color: white !important;
+            border-radius: 5px;
+            border: none;
+            padding: 6px 12px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .stButton>button:hover {
+            background-color: #D63A3A !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Create a row layout with admin name + buttons on the right
+    col1, col2 = st.columns([10, 2])  # Adjust column width to push right
+
+    with col1:
+        st.markdown("")  # Empty space to push items right
+
+    with col2:
+        st.markdown(f'<p class="admin-name">👤 {admin_name.upper()}</p>', unsafe_allow_html=True)
+        delete_acc = st.button("🗑️ Delete Account")
+        logout = st.button("🚪 Logout")
+
+    # Handle button actions
+    if delete_acc:
+        delete_account(st.session_state["user_id"])  # Define this function
+        st.session_state.clear()  # Clear session
+        st.success("✅ Your account has been deleted.")
+        st.rerun()
+
+    if logout:
+        st.session_state.clear()  # Clear session
+        st.success("✅ You have been logged out.")
+        st.rerun()
+
 
 # 🔹 Center Login Form and Make it Full Width
 st.markdown(
@@ -274,16 +345,24 @@ if not st.session_state.get("user_id"):
                     st.rerun()
                 else:
                     st.error("❌ Invalid username or password")
-
         elif auth_mode == "Sign Up":
             new_username = st.text_input("New Username")
             email = st.text_input("Email")
             new_password = st.text_input("New Password", type="password")
+        
             if st.button("Sign Up"):
-                if register_user(new_username, email, new_password):
-                    st.success("✅ Account created! Please log in.")
+                if not re.match(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", email):
+                    st.error("❌ Invalid email! Please enter a valid Gmail address (e.g., example@gmail.com).")
+                elif not new_password.strip():  # 🔹 Check Empty Password
+                    st.error("❌ Password cannot be empty!")
+                elif len(new_password) < 4:  # 🔹 Check Minimum Length
+                    st.error("❌ Password must be at least 4 characters long!")
                 else:
-                    st.error("❌ Username or email already exists.")
+                    result = register_user(new_username, email, new_password)
+                    if result == "✅ Registration successful!":
+                        st.success("✅ Account created! Please log in.")
+                    else:
+                        st.error(result)
         
         elif auth_mode == "Forgot Password":
             email = st.text_input("Enter your registered email")
