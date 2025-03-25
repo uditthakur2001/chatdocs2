@@ -2,6 +2,7 @@ import streamlit as st
 import psycopg2
 import bcrypt
 import os
+import time
 import re  # Import regex for email validation
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
@@ -45,20 +46,15 @@ def get_email_credentials():
 
 def get_admin_username(user_id):
     """Fetch the admin's username from the users table."""
-    conn = psycopg2.connect(
-        dbname="neondb",
-        user="neondb_owner",
-        password="npg_1IeuRlwZdc8a",
-        host="ep-dark-firefly-a8fjfreu-pooler.eastus2.azure.neon.tech",
-        port="5432"
-    )
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))  # Assuming 'id' is the primary key
+    cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
     cursor.close()
     conn.close()
     
-    return user[0].upper() if user else None  # Return username if found
+    return user[0].upper() if user else None
+
 
 
 # 🔹 Hash Passwords
@@ -119,7 +115,7 @@ def delete_chat_history(user_id):
     conn.close()
 
 # 🔹 Function to Delete Chat History for a Specific PDF
-def delete_chat_history(user_id, pdf_name):
+def delete_chat_history_pdf(user_id, pdf_name):
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM chat_history WHERE user_id = %s AND pdf_name = %s", (user_id, pdf_name))
@@ -129,21 +125,17 @@ def delete_chat_history(user_id, pdf_name):
 
 # 🔹 Delete User Account
 def delete_account(user_id):
-    conn = connect_db()
-    cursor = conn.cursor()
     try:
-        # Delete user's chat history first (to maintain foreign key integrity)
-        cursor.execute("DELETE FROM chat_history WHERE user_id = %s", (user_id,))
-        # Delete user account
-        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
-        conn.commit()
+        with connect_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM chat_history WHERE user_id = %s", (user_id,))
+                cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            conn.commit()
         return True
     except Exception as e:
         st.error(f"❌ Error deleting account: {e}")
         return False
-    finally:
-        cursor.close()
-        conn.close()
+
 
 # 🔹 User Session Management
 if "user_id" not in st.session_state:
@@ -188,7 +180,7 @@ if st.session_state["user_id"]:
 
         # 🔹 Show Delete Chat History for Selected PDF only if `selected_pdf` exists
         if st.sidebar.button(f"🗑️ Delete Chat for '{selected_pdf}'"):
-            delete_chat_history(st.session_state["user_id"], selected_pdf)
+            delete_chat_history_pdf(st.session_state["user_id"], selected_pdf)
             st.sidebar.success(f"✅ Chat history for '{selected_pdf}' deleted!")
             st.rerun()
     else:
@@ -257,10 +249,14 @@ if "user_id" in st.session_state and st.session_state["user_id"]:
         st.success("✅ Your account has been deleted.")
         st.rerun()
 
+
     if logout:
         st.session_state.clear()  # Clear session
         st.success("✅ You have been logged out.")
-        st.rerun()
+        time.sleep(2)  # Wait for 2 seconds to show the message
+        st.rerun()  # Refresh the page
+
+
 
 
 # 🔹 Center Login Form and Make it Full Width
@@ -277,26 +273,25 @@ st.markdown(
 )
 
 def send_reset_email(email, otp):
-    sender_email, sender_password = get_email_credentials()
-
-    subject = "Password Reset Code"
-    body = f"Your password reset OTP is: {otp}"
-
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = sender_email
-    msg["To"] = email
-
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, email, msg.as_string())
-        server.quit()
+        sender_email, sender_password = get_email_credentials()
+        msg = MIMEText(f"Your password reset OTP is: {otp}")
+        msg["Subject"] = "Password Reset Code"
+        msg["From"] = sender_email
+        msg["To"] = email
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, msg.as_string())
+
         return True
-    except Exception as e:
+    except smtplib.SMTPAuthenticationError:
+        st.error("❌ Email authentication failed. Check your credentials.")
+    except smtplib.SMTPException as e:
         st.error(f"❌ Error sending email: {e}")
-        return False
+    return False
+
 
 
 def forgot_password(email):
