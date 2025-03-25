@@ -351,6 +351,11 @@ if not st.session_state.get("user_id"):
             new_password = st.text_input("New Password", type="password")
         
             if st.button("Sign Up"):
+                if not new_username.strip():
+                    st.error("❌ Username cannot be empty!")
+                elif not re.match(r"^[a-zA-Z][a-zA-Z0-9_]*$", new_username):  # Starts with letter & allows only letters, numbers, _
+                    st.error("❌ Username must start with a letter and can contain only letters, numbers, and underscores!")
+
                 if not re.match(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", email):
                     st.error("❌ Invalid email! Please enter a valid Gmail address (e.g., example@gmail.com).")
                 elif not new_password.strip():  # 🔹 Check Empty Password
