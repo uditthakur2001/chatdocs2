@@ -1,3 +1,5 @@
+# ======================= Import Section =======================
+
 import streamlit as st
 import psycopg2
 import bcrypt
@@ -18,7 +20,9 @@ import smtplib
 import random
 from email.mime.text import MIMEText
 
-# 🔹 Streamlit Config
+
+# ======================= Streamlit Config, API & PostgreSQL Database Connection =======================
+
 st.set_page_config(page_title="ChatDocs", page_icon="📝", layout="wide")
 st.title("📝 ChatDocs")
 
@@ -36,26 +40,66 @@ def connect_db():
         port=st.secrets["database"]["DB_PORT"]
     )
 
+# ======================= Email Handling =======================
+
 # 🔹 Fetch Email Credentials from Streamlit Secrets
 def get_email_credentials():
     sender_email = st.secrets["email"]["SENDER_EMAIL"]
     sender_password = st.secrets["email"]["SENDER_PASSWORD"]
     return sender_email, sender_password
 
+def send_reset_email(email, otp):
+    try:
+        sender_email, sender_password = get_email_credentials()
+        msg = MIMEText(f"Your password reset OTP is: {otp}")
+        msg["Subject"] = "Password Reset Code"
+        msg["From"] = sender_email
+        msg["To"] = email
 
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, msg.as_string())
 
-def get_admin_username(user_id):
-    """Fetch the admin's username from the users table."""
+        return True
+    except smtplib.SMTPAuthenticationError:
+        st.error("❌ Email authentication failed. Check your credentials.")
+    except smtplib.SMTPException as e:
+        st.error(f"❌ Error sending email: {e}")
+    return False
+
+def forgot_password(email):
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
+    cursor.execute("SELECT id FROM users WHERE email=%s", (email,))
     user = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    
-    return user[0].upper() if user else None
+
+    if user:
+        otp = random.randint(100000, 999999)
+        st.session_state["reset_otp"] = otp
+        st.session_state["reset_email"] = email
+        if send_reset_email(email, otp):
+            return True
+        else:
+            return False
+    return False
+
+# 🔹 Reset Password Function
+def reset_password(email, otp, new_password):
+    if "reset_otp" in st.session_state and "reset_email" in st.session_state:
+        if st.session_state["reset_otp"] == otp and st.session_state["reset_email"] == email:
+            hashed_pw = hash_password(new_password)
+            conn = connect_db()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password=%s WHERE email=%s", (hashed_pw, email))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+    return False
 
 
+# ======================= Authentication Section =======================
 
 # 🔹 Hash Passwords
 def hash_password(password):
@@ -75,7 +119,6 @@ def validate_user(username, password):
     if user and check_password(password, user[1]):
         return user[0]
     return None
-
 
 # 🔹 Register User
 def register_user(username, email, password):
@@ -105,6 +148,8 @@ def register_user(username, email, password):
         conn.close()
 
 
+# ======================= Delete Chat =======================
+
 # 🔹 Delete Chat History Function
 def delete_chat_history(user_id):
     conn = connect_db()
@@ -123,6 +168,9 @@ def delete_chat_history_pdf(user_id, pdf_name):
     cursor.close()
     conn.close()
 
+# ======================= User Account Management =======================
+
+
 # 🔹 Delete User Account
 def delete_account(user_id):
     try:
@@ -136,10 +184,22 @@ def delete_account(user_id):
         st.error(f"❌ Error deleting account: {e}")
         return False
 
+def get_admin_username(user_id):
+    """Fetch the admin's username from the users table."""
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return user[0].upper() if user else None
 
 # 🔹 User Session Management
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = None
+
+# ======================= Sidebar Chat History =======================
 
 # 🔹 Always Show Sidebar
 st.sidebar.title("📜 Chat History")
@@ -192,14 +252,11 @@ if st.session_state["user_id"]:
         st.sidebar.success("✅ Chat history deleted!")
         st.rerun()
 
-
-    # # Add an empty space to push the button to the right
-    # st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
-    # # Close the right-alignment div
-    # st.markdown("</div>", unsafe_allow_html=True)
-
 else:
     st.sidebar.info("🔑 Please log in to see your chat history.")
+
+
+# ======================= Logout & Delete Account =======================
 
 # Check if user is logged in
 if "user_id" in st.session_state and st.session_state["user_id"]:
@@ -256,9 +313,6 @@ if "user_id" in st.session_state and st.session_state["user_id"]:
         time.sleep(2)  # Wait for 2 seconds to show the message
         st.rerun()  # Refresh the page
 
-
-
-
 # 🔹 Center Login Form and Make it Full Width
 st.markdown(
     """
@@ -272,58 +326,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-def send_reset_email(email, otp):
-    try:
-        sender_email, sender_password = get_email_credentials()
-        msg = MIMEText(f"Your password reset OTP is: {otp}")
-        msg["Subject"] = "Password Reset Code"
-        msg["From"] = sender_email
-        msg["To"] = email
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, email, msg.as_string())
-
-        return True
-    except smtplib.SMTPAuthenticationError:
-        st.error("❌ Email authentication failed. Check your credentials.")
-    except smtplib.SMTPException as e:
-        st.error(f"❌ Error sending email: {e}")
-    return False
-
-
-
-def forgot_password(email):
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email=%s", (email,))
-    user = cursor.fetchone()
-
-    if user:
-        otp = random.randint(100000, 999999)
-        st.session_state["reset_otp"] = otp
-        st.session_state["reset_email"] = email
-        if send_reset_email(email, otp):
-            return True
-        else:
-            return False
-    return False
-
-
-# 🔹 Reset Password Function
-def reset_password(email, otp, new_password):
-    if "reset_otp" in st.session_state and "reset_email" in st.session_state:
-        if st.session_state["reset_otp"] == otp and st.session_state["reset_email"] == email:
-            hashed_pw = hash_password(new_password)
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET password=%s WHERE email=%s", (hashed_pw, email))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-    return False
+# ======================= Login UI Page =======================
 
 # 🔹 Login/Signup UI
 if not st.session_state.get("user_id"):
@@ -386,6 +389,8 @@ if not st.session_state.get("user_id"):
     st.stop()
 
 
+# ======================= Extraction of text =======================
+
 # 🔹 Extract Text from PDF
 def extract_text_from_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
@@ -408,6 +413,8 @@ def extract_text_from_txt(uploaded_file):
     return StringIO(uploaded_file.getvalue().decode("utf-8")).read()
 
 
+# ======================= File Upload Section =======================
+
 uploaded_file = st.file_uploader("📂 Upload a document", type=["pdf", "docx", "csv", "xlsx", "txt"])
 
 if uploaded_file is None:
@@ -429,6 +436,8 @@ else:
     st.error("❌ Unsupported file type.")
     st.stop()
 
+
+# ======================= Faiss operations & QnA =======================
 
 # 🔹 Text Splitting & Embedding
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
