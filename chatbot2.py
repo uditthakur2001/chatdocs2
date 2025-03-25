@@ -21,22 +21,26 @@ from email.mime.text import MIMEText
 st.set_page_config(page_title="ChatDocs", page_icon="📝", layout="wide")
 st.title("📝 ChatDocs")
 
-os.environ["GOOGLE_API_KEY"] = "AIzaSyCN6sMI7nRyuwgTovMrNbs2OdoOIEFAv60"
+
+# 🔹 Load API Key from Streamlit Secrets
+os.environ["GOOGLE_API_KEY"] = st.secrets["general"]["GOOGLE_API_KEY"]
 
 # 🔹 PostgreSQL Database Connection
 def connect_db():
     return psycopg2.connect(
-        dbname="neondb",
-        user="neondb_owner",
-        password="npg_1IeuRlwZdc8a",
-        host="ep-dark-firefly-a8fjfreu-pooler.eastus2.azure.neon.tech",
-        port="5432"
+        dbname=st.secrets["database"]["DB_NAME"],
+        user=st.secrets["database"]["DB_USER"],
+        password=st.secrets["database"]["DB_PASSWORD"],
+        host=st.secrets["database"]["DB_HOST"],
+        port=st.secrets["database"]["DB_PORT"]
     )
 
+# 🔹 Fetch Email Credentials from Streamlit Secrets
 def get_email_credentials():
-    sender_email = "uditrajsingh815@gmail.com"  # Your fixed sender email
-    sender_password = "zpjb vgul dzkc jpbe"
+    sender_email = st.secrets["email"]["SENDER_EMAIL"]
+    sender_password = st.secrets["email"]["SENDER_PASSWORD"]
     return sender_email, sender_password
+
 
 
 def get_admin_username(user_id):
